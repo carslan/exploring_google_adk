@@ -1,48 +1,56 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, Tuple
 
-def build_catalog(
+def build_catalog_and_payload(
     records: Union[List[Dict[str, Any]], Dict[str, Any]],
     prefix: str = "",
     catalog: Dict[str, str] = None
-) -> Dict[str, str]:
+) -> Tuple[Dict[str, str], Union[List[Dict[str, Any]], Dict[str, Any]]]:
     """
-    Recursively scans given dict/list of dicts and creates a catalog
-    mapping of flattened key paths to unique numeric IDs.
+    Builds catalog (descriptor) and encodes the payload recursively.
+    Returns: (catalog, encoded_payload)
 
-    Example output:
-    {
-        "1": "id",
-        "2": "profile.name",
-        "3": "profile.age",
-        "4": "addresses.type",
-        "5": "addresses.city"
-    }
+    catalog -> { "1": "profile.name", "2": "addresses.city", ... }
+    payload -> with numeric keys based on catalog
     """
     if catalog is None:
         catalog = {}
 
+    # helper: get or create ID for a path
+    def _get_id(path: str) -> str:
+        for k, v in catalog.items():
+            if v == path:
+                return k
+        key = str(len(catalog) + 1)
+        catalog[key] = path
+        return key
+
     if isinstance(records, list):
+        encoded_list = []
         for rec in records:
             if isinstance(rec, dict):
-                build_catalog(rec, prefix, catalog)
-        return catalog
+                encoded_list.append(build_catalog_and_payload(rec, prefix, catalog)[1])
+            else:
+                encoded_list.append(rec)
+        return catalog, encoded_list
 
-    if isinstance(records, dict):
+    elif isinstance(records, dict):
+        encoded_dict = {}
         for key, value in records.items():
             path = f"{prefix}.{key}" if prefix else key
             if isinstance(value, dict):
-                build_catalog(value, path, catalog)
+                _, nested_payload = build_catalog_and_payload(value, path, catalog)
+                encoded_dict[_get_id(path)] = nested_payload
             elif isinstance(value, list):
-                # if list of dicts, dive into structure of first element
                 if value and isinstance(value[0], dict):
-                    build_catalog(value[0], path, catalog)
+                    _, nested_payload = build_catalog_and_payload(value, path, catalog)
+                    encoded_dict[_get_id(path)] = nested_payload
                 else:
-                    catalog[str(len(catalog) + 1)] = path
+                    encoded_dict[_get_id(path)] = value
             else:
-                catalog[str(len(catalog) + 1)] = path
-        return catalog
+                encoded_dict[_get_id(path)] = value
+        return catalog, encoded_dict
 
-    return catalog
+    return catalog, records
 
 
 # ---------------- Example ----------------
@@ -63,5 +71,8 @@ if __name__ == "__main__":
         }
     ]
 
-    catalog = build_catalog(data)
+    catalog, payload = build_catalog_and_payload(data)
+    print("Catalog:")
     print(catalog)
+    print("\nEncoded Payload:")
+    print(payload)
