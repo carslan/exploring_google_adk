@@ -1,88 +1,51 @@
-from typing import List, Dict, Any, Union
+from typing import Any, Dict, List, Union
 
-class CompactJSON:
-    @staticmethod
-    def encode(obj: Union[List, Dict]) -> Dict[str, Any]:
-        """
-        Recursively encodes dict or list into compact descriptor/payload structure.
-        """
-        if isinstance(obj, list):
-            if not obj:
-                return {"descriptor": {}, "payload": []}
+def build_catalog(
+    records: Union[List[Dict[str, Any]], Dict[str, Any]],
+    prefix: str = "",
+    catalog: Dict[str, str] = None
+) -> Dict[str, str]:
+    """
+    Recursively scans given dict/list of dicts and creates a catalog
+    mapping of flattened key paths to unique numeric IDs.
 
-            # collect all unique keys in all dicts
-            all_keys = list({k for rec in obj if isinstance(rec, dict) for k in rec.keys()})
-            descriptor = {str(i + 1): k for i, k in enumerate(all_keys)}
-            key_map = {k: str(i + 1) for i, k in enumerate(all_keys)}
+    Example output:
+    {
+        "1": "id",
+        "2": "profile.name",
+        "3": "profile.age",
+        "4": "addresses.type",
+        "5": "addresses.city"
+    }
+    """
+    if catalog is None:
+        catalog = {}
 
-            payload = []
-            for rec in obj:
-                compact = {}
-                for k, v in rec.items():
-                    key = key_map[k]
-                    if isinstance(v, (dict, list)):
-                        compact[key] = CompactJSON.encode(v)
-                    else:
-                        compact[key] = v
-                payload.append(compact)
-            return {"descriptor": descriptor, "payload": payload}
+    if isinstance(records, list):
+        for rec in records:
+            if isinstance(rec, dict):
+                build_catalog(rec, prefix, catalog)
+        return catalog
 
-        elif isinstance(obj, dict):
-            if not obj:
-                return {"descriptor": {}, "payload": {}}
-
-            keys = list(obj.keys())
-            descriptor = {str(i + 1): k for i, k in enumerate(keys)}
-            key_map = {k: str(i + 1) for i, k in enumerate(keys)}
-
-            payload = {}
-            for k, v in obj.items():
-                key = key_map[k]
-                if isinstance(v, (dict, list)):
-                    payload[key] = CompactJSON.encode(v)
+    if isinstance(records, dict):
+        for key, value in records.items():
+            path = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                build_catalog(value, path, catalog)
+            elif isinstance(value, list):
+                # if list of dicts, dive into structure of first element
+                if value and isinstance(value[0], dict):
+                    build_catalog(value[0], path, catalog)
                 else:
-                    payload[key] = v
+                    catalog[str(len(catalog) + 1)] = path
+            else:
+                catalog[str(len(catalog) + 1)] = path
+        return catalog
 
-            return {"descriptor": descriptor, "payload": payload}
-        else:
-            raise ValueError("Object must be dict or list of dicts")
-
-    @staticmethod
-    def decode(compact_obj: Dict[str, Any]) -> Union[List, Dict]:
-        """
-        Recursively decodes compacted JSON back to its original form.
-        """
-        descriptor = compact_obj.get("descriptor", {})
-        payload = compact_obj.get("payload", {})
-
-        if isinstance(payload, list):
-            decoded_list = []
-            for rec in payload:
-                full = {}
-                for k, v in rec.items():
-                    name = descriptor.get(k)
-                    if isinstance(v, dict) and "descriptor" in v and "payload" in v:
-                        full[name] = CompactJSON.decode(v)
-                    else:
-                        full[name] = v
-                decoded_list.append(full)
-            return decoded_list
-
-        elif isinstance(payload, dict):
-            full = {}
-            for k, v in payload.items():
-                name = descriptor.get(k)
-                if isinstance(v, dict) and "descriptor" in v and "payload" in v:
-                    full[name] = CompactJSON.decode(v)
-                else:
-                    full[name] = v
-            return full
-
-        return payload
+    return catalog
 
 
 # ---------------- Example ----------------
-
 if __name__ == "__main__":
     data = [
         {
@@ -96,14 +59,9 @@ if __name__ == "__main__":
         {
             "id": 2,
             "profile": {"name": "Maria", "age": 28},
-            "addresses": [
-                {"type": "home", "city": "Rio"}
-            ]
+            "addresses": [{"type": "home", "city": "Rio"}]
         }
     ]
 
-    compact = CompactJSON.encode(data)
-    print("Encoded:\n", compact)
-
-    restored = CompactJSON.decode(compact)
-    print("\nDecoded:\n", restored)
+    catalog = build_catalog(data)
+    print(catalog)
